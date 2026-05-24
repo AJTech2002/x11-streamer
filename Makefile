@@ -7,10 +7,12 @@ OUT = app
 
 LIBS = \
 	-lX11 \
+	-lXext \
 	-lXcomposite \
 	-lXdamage \
 	-lXfixes \
-	-lXtst
+	-lXtst \
+	-lpthread
 
 $(OUT): $(SRC)
 	$(CC) $(CFLAGS) $(SRC) -o $(OUT) $(LIBS)
