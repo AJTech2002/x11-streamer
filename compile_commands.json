@@ -1,0 +1,12 @@
+[
+  {
+    "directory": "/home/ajayv/dev/x11-streamer",
+    "command": "gcc -g -O0 -Iinclude -c src/main.c -o src/main.o",
+    "file": "src/main.c"
+  },
+  {
+    "directory": "/home/ajayv/dev/x11-streamer",
+    "command": "gcc -g -O0 -Iinclude -c src/xvfb_runner.c -o src/xvfb_runner.o",
+    "file": "src/xvfb_runner.c"
+  }
+]
