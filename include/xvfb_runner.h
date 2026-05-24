@@ -1,14 +1,21 @@
 #pragma once
+#include "options.h"
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
-#include "options.h"
 
 typedef struct {
-    int xvfbPid;
-    Display* dpy;
-    Window root;
+  int xvfbPid;
+  Display *dpy;
+  Window root;
 } XVFB;
 
-XVFB* init();
+XVFB *init();
 int end();
-int screenshot (const char* path);
+int screenshot(const char *path);
+
+int clearDisplay();
+void focusWindow(Window w);
+Window findWindowByName(Window root, const char *name);
+void printAllWindows(Window root);
+void printAllWindowsByClass(Window root);
+Window findWindowByClass(Window root, const char *className);
