@@ -12,7 +12,9 @@ LIBS = \
 	-lXdamage \
 	-lXfixes \
 	-lXtst \
-	-lpthread
+	-lpthread \
+	-llz4 \
+	-lsrt
 
 $(OUT): $(SRC)
 	$(CC) $(CFLAGS) $(SRC) -o $(OUT) $(LIBS)
