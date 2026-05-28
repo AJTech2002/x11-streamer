@@ -70,6 +70,7 @@ void capturer_run(Capturer* c, OnFrameCallback onFrame, void* userdata) {
             printf("XShmGetImage failed\n");
             goto reset;
         }
+        
 
         DirtyFrame frame = {
             .x      = x,

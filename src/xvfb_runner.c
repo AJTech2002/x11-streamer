@@ -13,7 +13,7 @@
 static int xvfbPid = 0;
 static XVFB *active = NULL;
 
-void stopXvfb() {
+void xvfb_stop() {
   if (xvfbPid > 0) {
     kill(xvfbPid, SIGTERM);
     waitpid(xvfbPid, NULL, 0);
@@ -24,8 +24,8 @@ void stopXvfb() {
   usleep(100000);
 };
 
-void startXvfb() {
-  stopXvfb();
+void xvfb_start() {
+  xvfb_stop();
 
   xvfbPid = fork();
   if (xvfbPid == 0) {
@@ -50,41 +50,41 @@ void startXvfb() {
   exit(1);
 };
 
-XVFB *init() {
+XVFB *xvfb_init() {
   active = calloc(1, sizeof(XVFB));
   if (!active)
     return NULL;
 
-  startXvfb();
+  xvfb_start();
 
   active->dpy = XOpenDisplay(DISPLAY_STR);
   if (!active->dpy) {
     fprintf(stderr, "Failed to open display\n");
     free(active);
     active = NULL;
-    stopXvfb();
+    xvfb_stop();
     return NULL;
   }
 
   // set root BEFORE calling anything that uses it
   active->root = DefaultRootWindow(active->dpy);
 
-  clearDisplay(); // ← now safe, root is valid
+  xvfb_clear_display(); // ← now safe, root is valid
   usleep(200000);
 
   return active;
 }
 
-int end() {
+int xvfb_end() {
   if (active && active->dpy) {
     XCloseDisplay(active->dpy);
-    stopXvfb();
+    xvfb_stop();
   }
 
   return 0;
 };
 
-int clearDisplay() {
+int xvfb_clear_display() {
 
   if (!active || !active->dpy) {
     return 1;

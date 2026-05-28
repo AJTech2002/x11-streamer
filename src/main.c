@@ -6,8 +6,10 @@
 #include <X11/Xutil.h>
 #include <lz4.h>
 #include <pthread.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 char _tempStrBuf[512];
@@ -21,20 +23,29 @@ void run_cmd(const char *str) {
 }
 
 void onFrame(DirtyFrame *frame, void *userdata) {
-  if (session.connected) {
-    debug_show(frame);
-    int pixelBytes = frame->w * frame->h * 4;
+  if (!session.connected) return;
+  debug_show(frame);
 
-    // TODO: Accumulate & Merge Rects
+  // TODO: Accumulate & Merge Rects & Compress
+  const uint headerSize = sizeof(uint32_t) * 6;                    // 20 bytes
+  const uint pixelBytes = frame->h * frame->stride;         // full rows with padding
 
-    char compressed[LZ4_COMPRESSBOUND(pixelBytes)];
-    int compSize = LZ4_compress_fast((char *)frame->pixels, compressed,
-                                     pixelBytes, sizeof(compressed), 1);
+  char* data = malloc(headerSize + LZ4_COMPRESSBOUND(pixelBytes));
+  if (!data) return;
 
-    // TODO: prepend header and send via SRT
-    printf("compressed %d → %d bytes\n", pixelBytes, compSize);
-    udp_send(&session, compressed, compSize);
-  }
+  int compSize = LZ4_compress_fast((char *)(frame->pixels), (data+headerSize),
+                                   pixelBytes, LZ4_COMPRESSBOUND(pixelBytes), 1);
+  if (compSize <= 0) { free(data); return; }
+  printf("\rSending %d", compSize);
+
+  const uint32_t header[6] = {
+      frame->x, frame->y, frame->w, frame->h, frame->stride, pixelBytes
+  }; // Send Original Size needed for decompression
+
+  memcpy(data, header, headerSize);
+  udp_send(&session, data, compSize+headerSize);
+  
+  free(data);
 }
 
 void *typingThread(void *arg) {
@@ -81,6 +92,7 @@ int main(int argc, char *argv[]) {
   }
 
   int port = atoi(argv[1]);
+  
 
   printf("Starting on port %d\n", port);
   // system("fuser -k 5201/udp");
@@ -91,7 +103,7 @@ int main(int argc, char *argv[]) {
   XSetErrorHandler(xErrorHandler);
   XInitThreads();
 
-  XVFB *xvfb = init();
+  XVFB *xvfb = xvfb_init();
   usleep(500000);
 
   Capturer *c = capturer_create(xvfb->dpy, xvfb->root, 1280, 720);
@@ -103,6 +115,6 @@ int main(int argc, char *argv[]) {
 
   capturer_destroy(c);
   debug_destroy();
-  end();
+  xvfb_end();
   return 0;
 }

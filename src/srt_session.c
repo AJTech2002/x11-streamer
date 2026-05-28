@@ -1,15 +1,54 @@
 #include "srt_session.h"
 #include <arpa/inet.h>
 #include <asm-generic/socket.h>
+#include <bits/pthreadtypes.h>
 #include <bits/types/struct_osockaddr.h>
 #include <netinet/in.h>
+#include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include "logs.h"
+
+
+typedef struct {
+  UdpSession* session;
+  pthread_mutex_t lock;
+} UdpRecvThreadArgs;
+
+void* udp_recv (void* arg) {
+  UdpRecvThreadArgs* args = (UdpRecvThreadArgs*)arg;
+  UdpSession* session = args->session;
+
+  while (true) {
+    pthread_mutex_lock(&args->lock);
+
+    char buf[64];
+    socklen_t len = sizeof(session->client);
+    LOG_WARN_SBJ("socket", "[waiting for client punchtrough]");
+    recvfrom(session->sock, buf, sizeof(buf), 0, (struct sockaddr *)&session->client, &len);
+
+    char ip[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &session->client.sin_addr, ip, sizeof(ip));
+
+    const char *msg = "hello"; //TODO: make options
+    sendto(session->sock, msg, strlen(msg), 0, (struct sockaddr *)&session->client,
+    sizeof(session->client));
+
+    session->connected = true;
+    pthread_mutex_unlock(&args->lock);
+
+  }
+
+    return NULL;
+
+};
 
 int udp_setup(UdpSession *session, int port) {
+  session->port = port;
   session->sock = socket(AF_INET, SOCK_DGRAM, 0);
   printf("Connected Socket : %d \n", session->sock);
 
@@ -46,31 +85,38 @@ int udp_setup(UdpSession *session, int port) {
            bind_res); // ← strerror not just the code
     return bind_res;
   }
-  printf("Bound successfully, waiting...\n");
-  // wait for the iPhone to punch through
-  printf(" ~~ Waiting for client...\n");
-  char buf[64];
-  socklen_t len = sizeof(session->client);
-  recvfrom(session->sock, buf, sizeof(buf), 0, (struct sockaddr *)&session->client, &len);
 
-  printf("Got the packet!");
+  UdpRecvThreadArgs* args = malloc(sizeof(UdpRecvThreadArgs));
+  args->session = session;
+  pthread_mutex_init(&args->lock, NULL);
 
-  char ip[INET_ADDRSTRLEN];
-  inet_ntop(AF_INET, &session->client.sin_addr, ip, sizeof(ip));
-  printf("Client: %s:%d — blasting\n", ip, ntohs(session->client.sin_port));
-  const char *msg = "hello";
-  sendto(session->sock, msg, strlen(msg), 0, (struct sockaddr *)&session->client,
-  sizeof(session->client));
-  session->connected = true;
+  pthread_create(&session->recvThread, NULL, udp_recv, args);
+  LOG_INFO_SBJ("socket", "created recv thread");
+
+  return 0;
+};
+
+int udp_close (UdpSession *session) {
+  pthread_kill(session->recvThread, SIGKILL);
+
+  session->connected = false;
+  if (session->sock >= 0) {
+    close(session->sock);
+    session->sock = -1;
+  }
+
   return 0;
 }
 
+int udp_send(UdpSession* session, const char* msg, size_t buf_size) {
+    if (!session->connected) return 0;
 
-int udp_send(UdpSession* session, const char *msg, size_t buf_size) {
-  if (session->connected) {
-
-    return sendto(session->sock, msg, buf_size, 0, (struct sockaddr *)&(session->client),
-                  sizeof(session->client));
-  } else
-    return 0;
+    ssize_t sent = sendto(session->sock, msg, buf_size, 0,
+                          (struct sockaddr*)&session->client,
+                          sizeof(session->client));
+    if (sent < 0) {
+      udp_close(session);
+      udp_setup(session, session->port);
+    }
+    return sent;
 }
