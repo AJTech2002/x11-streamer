@@ -19,33 +19,35 @@ typedef struct {
   pthread_mutex_t lock;
 } UdpRecvThreadArgs;
 
-void* udp_recv (void* arg) {
-  UdpRecvThreadArgs* args = (UdpRecvThreadArgs*)arg;
-  UdpSession* session = args->session;
+void* udp_recv(void* arg) {
+    UdpRecvThreadArgs* args = (UdpRecvThreadArgs*)arg;
+    UdpSession* session = args->session;
 
-  while (true) {
-    pthread_mutex_lock(&args->lock);
+    while (true) {
+        char buf[64];
+        socklen_t len = sizeof(session->client);
+        LOG_WARN_SBJ("socket", "waiting for client punchthrough");
 
-    char buf[64];
-    socklen_t len = sizeof(session->client);
-    LOG_WARN_SBJ("socket", "[waiting for client punchtrough]");
-    recvfrom(session->sock, buf, sizeof(buf), 0, (struct sockaddr *)&session->client, &len);
+        // no lock here — just block waiting for packet
+        ssize_t r = recvfrom(session->sock, buf, sizeof(buf), 0,
+                             (struct sockaddr*)&session->client, &len);
+        if (r < 0) continue;
 
-    char ip[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &session->client.sin_addr, ip, sizeof(ip));
+        char ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &session->client.sin_addr, ip, sizeof(ip));
+        LOG_OK_SBJ("socket", "client connected: %s", ip);
 
-    const char *msg = "hello"; //TODO: make options
-    sendto(session->sock, msg, strlen(msg), 0, (struct sockaddr *)&session->client,
-    sizeof(session->client));
+        const char* msg = "hello";
+        sendto(session->sock, msg, strlen(msg), 0,
+               (struct sockaddr*)&session->client, sizeof(session->client));
 
-    session->connected = true;
-    pthread_mutex_unlock(&args->lock);
-
-  }
-
+        // only lock for the flag write
+        pthread_mutex_lock(&args->lock);
+        session->connected = true;
+        pthread_mutex_unlock(&args->lock);
+    }
     return NULL;
-
-};
+}
 
 int udp_setup(UdpSession *session, int port) {
   session->port = port;

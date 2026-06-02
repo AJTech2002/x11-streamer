@@ -87,7 +87,7 @@ void typeChar(Display *dpy, char c) {
 void typeString(Display *dpy, const char *str, int shouldPressEnter) {
   for (int i = 0; i < (int)strlen(str); i++) {
     typeChar(dpy, str[i]);
-    usleep(10000); // 10ms between chars — some apps miss fast input
+    usleep(100000); // 10ms between chars — some apps miss fast input
   }
   if (shouldPressEnter)
     pressEnter(dpy);

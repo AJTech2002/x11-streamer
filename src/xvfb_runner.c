@@ -57,7 +57,12 @@ XVFB *xvfb_init() {
 
   xvfb_start();
 
-  active->dpy = XOpenDisplay(DISPLAY_STR);
+  for (int i = 0; i < 10; i++) {
+    active->dpy = XOpenDisplay(DISPLAY_STR);
+    if (active->dpy)
+      break;
+    usleep(200000);
+  }
   if (!active->dpy) {
     fprintf(stderr, "Failed to open display\n");
     free(active);

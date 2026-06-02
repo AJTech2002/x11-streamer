@@ -1,3 +1,4 @@
+#include "logs.h"
 #include "srt_session.h"
 #include "xvfb_runner.h"
 #include "xvfb_streamer.h"
@@ -23,28 +24,45 @@ void run_cmd(const char *str) {
 }
 
 void onFrame(DirtyFrame *frame, void *userdata) {
-  if (!session.connected) return;
+  if (!session.connected)
+    return;
   debug_show(frame);
 
-  // TODO: Accumulate & Merge Rects & Compress
-  const uint headerSize = sizeof(uint32_t) * 6;                    // 20 bytes
-  const uint pixelBytes = frame->h * frame->stride;         // full rows with padding
+  const int pixelBytes = frame->h * frame->w * 4;
+  const uint headerSize = sizeof(int) * 5;
 
-  char* data = malloc(headerSize + LZ4_COMPRESSBOUND(pixelBytes));
-  if (!data) return;
+  // separate buffers for src pixels and compressed output
+  uint8_t *pixels = malloc(pixelBytes);
+  uint8_t *data = malloc(headerSize + LZ4_COMPRESSBOUND(pixelBytes));
+  if (!pixels || !data) {
+    free(pixels);
+    free(data);
+    return;
+  }
 
-  int compSize = LZ4_compress_fast((char *)(frame->pixels), (data+headerSize),
-                                   pixelBytes, LZ4_COMPRESSBOUND(pixelBytes), 1);
-  if (compSize <= 0) { free(data); return; }
-  printf("\rSending %d", compSize);
+  // strip stride into pixels buffer
+  for (int r = 0; r < frame->h; r++) {
+    memcpy(pixels + r * frame->w * 4, frame->pixels + r * frame->stride,
+           frame->w * 4);
+  }
 
-  const uint32_t header[6] = {
-      frame->x, frame->y, frame->w, frame->h, frame->stride, pixelBytes
-  }; // Send Original Size needed for decompression
+  int compSize =
+      LZ4_compress_fast((char *)pixels, (char *)(data + headerSize), pixelBytes,
+                        LZ4_COMPRESSBOUND(pixelBytes), 1);
+  free(pixels);
+  if (compSize <= 0) {
+    free(data);
+    return;
+  }
 
+  int header[5] = {frame->w, frame->h, frame->x, frame->y, pixelBytes};
   memcpy(data, header, headerSize);
-  udp_send(&session, data, compSize+headerSize);
-  
+
+  // printf("Sent Packet { w %d h %d x %d y %d uncompressed %d compressed %d
+  // }\n",
+  //       frame->w, frame->h, frame->x, frame->y,  pixelBytes, compSize);
+
+  udp_send(&session, (char *)data, headerSize + compSize);
   free(data);
 }
 
@@ -53,6 +71,10 @@ void *typingThread(void *arg) {
 
   run_cmd("openbox");
   run_cmd("xterm -title Terminal -class Terminal");
+  run_cmd("xterm -title Terminal -class Terminal");
+
+  run_cmd("xterm -title Terminal -class Terminal");
+
   usleep(1000000);
 
   printAllWindowsByClass(xvfb->root);
@@ -92,7 +114,6 @@ int main(int argc, char *argv[]) {
   }
 
   int port = atoi(argv[1]);
-  
 
   printf("Starting on port %d\n", port);
   // system("fuser -k 5201/udp");
@@ -104,17 +125,21 @@ int main(int argc, char *argv[]) {
   XInitThreads();
 
   XVFB *xvfb = xvfb_init();
+  if (!xvfb) {
+    fprintf(stderr, "Failed to initialize Xvfb\n");
+    return 1;
+  }
   usleep(500000);
 
   Capturer *c = capturer_create(xvfb->dpy, xvfb->root, 1280, 720);
-  debug_create(1280, 720);
+  // debug_create(1280, 720);
   pthread_t thread;
   pthread_create(&thread, NULL, typingThread, xvfb);
 
   capturer_run(c, onFrame, NULL);
 
   capturer_destroy(c);
-  debug_destroy();
+  // debug_destroy();
   xvfb_end();
   return 0;
 }
