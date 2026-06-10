@@ -14,7 +14,8 @@ LIBS = \
 	-lXtst \
 	-lpthread \
 	-llz4 \
-	-lsrt
+	-lsrt \
+	-lm
 
 $(OUT): $(SRC)
 	$(CC) $(CFLAGS) $(SRC) -o $(OUT) $(LIBS)

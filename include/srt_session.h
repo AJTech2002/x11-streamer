@@ -1,8 +1,10 @@
 #include <arpa/inet.h>
+#include <pthread.h>
 #include <stdbool.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <pthread.h>
+
+typedef void (*callback_fn)(int, size_t, char *);
 
 typedef struct {
   int sock;
@@ -10,9 +12,10 @@ typedef struct {
   struct sockaddr_in client;
   bool connected;
   pthread_t recvThread;
+  callback_fn callback;
 } UdpSession;
 
-int udp_setup(UdpSession *session, int port);
+int udp_setup(UdpSession *session, int port, callback_fn callback);
 int udp_send(UdpSession *session, const char *buf, size_t buf_size);
-int udp_close (UdpSession *session);
-void* udp_recv (void* arg);
+int udp_close(UdpSession *session);
+void *udp_recv(void *arg);

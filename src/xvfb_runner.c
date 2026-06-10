@@ -31,7 +31,7 @@ void xvfb_start() {
   if (xvfbPid == 0) {
     freopen("/dev/null", "w", stderr);
     execlp("Xvfb", "Xvfb", DISPLAY_STR, "-screen", "0", "1280x720x24", "-ac",
-           "+extension", "GLX", NULL);
+           "+extension", "GLX", "+extension", "XFIXES", NULL);
     _exit(1);
   }
 
@@ -95,12 +95,12 @@ int xvfb_clear_display() {
     return 1;
   }
 
-  Window parent, root, *children;
+  Window queried_root, parent, *children;
   unsigned int nChildren;
 
   Display *dpy = active->dpy;
 
-  XQueryTree(dpy, active->root, &active->root, &parent, &children, &nChildren);
+  XQueryTree(dpy, active->root, &queried_root, &parent, &children, &nChildren);
 
   for (unsigned int i = 0; i < nChildren; i++) {
     XDestroyWindow(dpy, children[i]);
