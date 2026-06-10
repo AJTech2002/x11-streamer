@@ -1,6 +1,10 @@
 #include "capture.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
+
+#define TARGET_FPS 30
+#define FRAME_INTERVAL_NS (1000000000L / TARGET_FPS)
 
 Capturer *capturer_create(Display *dpy, Window root, int w, int h) {
   Capturer *c = calloc(1, sizeof(Capturer));
@@ -37,19 +41,41 @@ void capturer_destroy(Capturer *c) {
 
 void capturer_run(Capturer *c, OnFrameCallback onFrame, void *userdata) {
   XEvent ev;
+  struct timespec last = {0};
 
   while (1) {
     XNextEvent(c->dpy, &ev);
-
     if (ev.type != c->damageEventBase + XDamageNotify)
       continue;
 
+    // Coalesce all pending damage events into one bounding box to handle
+    // render storms from apps like Firefox without flooding allocations.
     XDamageNotifyEvent *dev = (XDamageNotifyEvent *)&ev;
+    int x = dev->area.x, y = dev->area.y;
+    int xmax = x + dev->area.width, ymax = y + dev->area.height;
 
-    int x = dev->area.x;
-    int y = dev->area.y;
-    int w = dev->area.width;
-    int h = dev->area.height;
+    while (XPending(c->dpy)) {
+      XEvent ev2;
+      XNextEvent(c->dpy, &ev2);
+      if (ev2.type != c->damageEventBase + XDamageNotify) continue;
+      XDamageNotifyEvent *d2 = (XDamageNotifyEvent *)&ev2;
+      int nx = d2->area.x, ny = d2->area.y;
+      int nx2 = nx + d2->area.width, ny2 = ny + d2->area.height;
+      if (nx < x) x = nx;
+      if (ny < y) y = ny;
+      if (nx2 > xmax) xmax = nx2;
+      if (ny2 > ymax) ymax = ny2;
+    }
+
+    // Rate-limit to TARGET_FPS; skip capture but still reset damage tracking.
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    long elapsed = (now.tv_sec - last.tv_sec) * 1000000000L + (now.tv_nsec - last.tv_nsec);
+    if (elapsed < FRAME_INTERVAL_NS)
+      goto reset;
+    last = now;
+
+    int w = xmax - x, h = ymax - y;
 
     if (x < 0) x = 0;
     if (y < 0) y = 0;
