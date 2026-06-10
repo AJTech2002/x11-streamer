@@ -9,13 +9,13 @@ typedef struct {
   Window root;
 } XVFB;
 
-XVFB *xvfb_init();
-int xvfb_end();
+XVFB *xvfb_init(void);
+int xvfb_end(void);
+int xvfb_clear_display(void);
 int screenshot(const char *path);
 
-int xvfb_clear_display();
 void focusWindow(Window w);
 Window findWindowByName(Window root, const char *name);
+Window findWindowByClass(Window root, const char *className);
 void printAllWindows(Window root);
 void printAllWindowsByClass(Window root);
-Window findWindowByClass(Window root, const char *className);

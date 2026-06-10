@@ -1,4 +1,4 @@
-#include "xvfb_runner.h"
+#include "display.h"
 #include <X11/X.h>
 #include <X11/Xlib.h>
 #include <X11/extensions/XTest.h>
@@ -13,18 +13,17 @@
 static int xvfbPid = 0;
 static XVFB *active = NULL;
 
-void xvfb_stop() {
+static void xvfb_stop(void) {
   if (xvfbPid > 0) {
     kill(xvfbPid, SIGTERM);
     waitpid(xvfbPid, NULL, 0);
-    xvfbPid = 0; // ← back to 0 not -1
+    xvfbPid = 0;
   }
-  // always clean lock file
   system("rm -f /tmp/.X90-lock");
   usleep(100000);
-};
+}
 
-void xvfb_start() {
+static void xvfb_start(void) {
   xvfb_stop();
 
   xvfbPid = fork();
@@ -35,7 +34,6 @@ void xvfb_start() {
     _exit(1);
   }
 
-  // wait for display to be ready
   Display *dpy = NULL;
   for (int i = 0; i < 30; i++) {
     usleep(200000);
@@ -48,19 +46,17 @@ void xvfb_start() {
   }
   fprintf(stderr, "Xvfb failed to start\n");
   exit(1);
-};
+}
 
-XVFB *xvfb_init() {
+XVFB *xvfb_init(void) {
   active = calloc(1, sizeof(XVFB));
-  if (!active)
-    return NULL;
+  if (!active) return NULL;
 
   xvfb_start();
 
   for (int i = 0; i < 10; i++) {
     active->dpy = XOpenDisplay(DISPLAY_STR);
-    if (active->dpy)
-      break;
+    if (active->dpy) break;
     usleep(200000);
   }
   if (!active->dpy) {
@@ -71,58 +67,45 @@ XVFB *xvfb_init() {
     return NULL;
   }
 
-  // set root BEFORE calling anything that uses it
   active->root = DefaultRootWindow(active->dpy);
-
-  xvfb_clear_display(); // ← now safe, root is valid
+  xvfb_clear_display();
   usleep(200000);
 
   return active;
 }
 
-int xvfb_end() {
+int xvfb_end(void) {
   if (active && active->dpy) {
     XCloseDisplay(active->dpy);
     xvfb_stop();
   }
-
   return 0;
-};
+}
 
-int xvfb_clear_display() {
-
-  if (!active || !active->dpy) {
-    return 1;
-  }
+int xvfb_clear_display(void) {
+  if (!active || !active->dpy) return 1;
 
   Window queried_root, parent, *children;
   unsigned int nChildren;
-
   Display *dpy = active->dpy;
 
   XQueryTree(dpy, active->root, &queried_root, &parent, &children, &nChildren);
-
-  for (unsigned int i = 0; i < nChildren; i++) {
+  for (unsigned int i = 0; i < nChildren; i++)
     XDestroyWindow(dpy, children[i]);
-  }
-
-  if (children)
-    XFree(children);
+  if (children) XFree(children);
   XFlush(dpy);
   return 0;
 }
 
 int screenshot(const char *path) {
-  XWindowAttributes attrs;
-
   Display *dpy = active->dpy;
   Window root = active->root;
 
+  XWindowAttributes attrs;
   XGetWindowAttributes(dpy, root, &attrs);
   int w = attrs.width;
   int h = attrs.height;
 
-  // capture entire root window
   XImage *img = XGetImage(dpy, root, 0, 0, w, h, AllPlanes, ZPixmap);
   if (!img) {
     fprintf(stderr, "XGetImage failed\n");
@@ -135,26 +118,19 @@ int screenshot(const char *path) {
     return 1;
   }
 
-  // PPM header
   fprintf(f, "P6\n%d %d\n255\n", w, h);
-
-  // write pixels — XImage is BGRA, PPM wants RGB
   for (int y = 0; y < h; y++) {
     for (int x = 0; x < w; x++) {
       unsigned long pixel = XGetPixel(img, x, y);
-      unsigned char r = (pixel >> 16) & 0xFF;
-      unsigned char g = (pixel >> 8) & 0xFF;
-      unsigned char b = (pixel >> 0) & 0xFF;
-      fputc(r, f);
-      fputc(g, f);
-      fputc(b, f);
+      fputc((pixel >> 16) & 0xFF, f);
+      fputc((pixel >> 8)  & 0xFF, f);
+      fputc((pixel >> 0)  & 0xFF, f);
     }
   }
 
   fclose(f);
   XDestroyImage(img);
   printf("Screenshot saved to %s (%dx%d)\n", path, w, h);
-
   return 0;
 }
 
@@ -171,72 +147,29 @@ void printAllWindows(Window root) {
   unsigned int nChildren;
 
   XQueryTree(dpy, root, &root, &parent, &children, &nChildren);
-
   for (unsigned int i = 0; i < nChildren; i++) {
-    // try XFetchName first
     char *name = NULL;
     XFetchName(dpy, children[i], &name);
 
-    // fallback to WM_NAME property
     if (!name) {
       Atom actualType;
       int actualFormat;
       unsigned long nItems, bytesAfter;
       unsigned char *prop = NULL;
-
       XGetWindowProperty(dpy, children[i], XInternAtom(dpy, "WM_NAME", False),
                          0, 1024, False, AnyPropertyType, &actualType,
                          &actualFormat, &nItems, &bytesAfter, &prop);
-
       if (prop) {
         name = strdup((char *)prop);
         XFree(prop);
       }
     }
 
-    // print even if no name — shows window ID
     printf("window: %lu — %s\n", children[i], name ? name : "(no name)");
-    if (name)
-      free(name);
-
+    if (name) free(name);
     printAllWindows(children[i]);
   }
-
-  if (children)
-    XFree(children);
-};
-
-Window findWindowByName(Window root, const char *name) {
-  Window parent, *children;
-  Display *dpy = active->dpy;
-
-  unsigned int nChildren;
-
-  XQueryTree(dpy, root, &root, &parent, &children, &nChildren);
-
-  Window result = 0;
-  for (unsigned int i = 0; i < nChildren; i++) {
-    char *winName = NULL;
-    XFetchName(dpy, children[i], &winName);
-
-    if (winName) {
-      if (strstr(winName, name)) { // partial match
-        result = children[i];
-        XFree(winName);
-        break;
-      }
-      XFree(winName);
-    }
-
-    // recurse into children
-    result = findWindowByName(children[i], name);
-    if (result)
-      break;
-  }
-
-  if (children)
-    XFree(children);
-  return result;
+  if (children) XFree(children);
 }
 
 void printAllWindowsByClass(Window root) {
@@ -245,21 +178,42 @@ void printAllWindowsByClass(Window root) {
   unsigned int nChildren;
 
   XQueryTree(dpy, root, &root, &parent, &children, &nChildren);
-
   for (unsigned int i = 0; i < nChildren; i++) {
     XClassHint hint;
     if (XGetClassHint(dpy, children[i], &hint)) {
-      printf("window: %lu — name: %s  class: %s\n", children[i], hint.res_name,
-             hint.res_class);
+      printf("window: %lu — name: %s  class: %s\n", children[i], hint.res_name, hint.res_class);
       XFree(hint.res_name);
       XFree(hint.res_class);
     }
-
     printAllWindowsByClass(children[i]);
   }
+  if (children) XFree(children);
+}
 
-  if (children)
-    XFree(children);
+Window findWindowByName(Window root, const char *name) {
+  Display *dpy = active->dpy;
+  Window parent, *children;
+  unsigned int nChildren;
+
+  XQueryTree(dpy, root, &root, &parent, &children, &nChildren);
+
+  Window result = 0;
+  for (unsigned int i = 0; i < nChildren; i++) {
+    char *winName = NULL;
+    XFetchName(dpy, children[i], &winName);
+    if (winName) {
+      if (strstr(winName, name)) {
+        result = children[i];
+        XFree(winName);
+        break;
+      }
+      XFree(winName);
+    }
+    result = findWindowByName(children[i], name);
+    if (result) break;
+  }
+  if (children) XFree(children);
+  return result;
 }
 
 Window findWindowByClass(Window root, const char *className) {
@@ -281,13 +235,9 @@ Window findWindowByClass(Window root, const char *className) {
         break;
       }
     }
-
     result = findWindowByClass(children[i], className);
-    if (result)
-      break;
+    if (result) break;
   }
-
-  if (children)
-    XFree(children);
+  if (children) XFree(children);
   return result;
 }
