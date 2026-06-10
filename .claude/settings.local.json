@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(make clean *)",
-      "Bash(make)"
+      "Bash(make)",
+      "Bash(xargs ls)"
     ]
   }
 }

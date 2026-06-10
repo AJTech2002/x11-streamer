@@ -17,8 +17,8 @@ static UdpSession session;
 static int x_error_handler(Display *dpy, XErrorEvent *err) {
   char msg[256];
   XGetErrorText(dpy, err->error_code, msg, sizeof(msg));
-  fprintf(stderr, "X Error: %s (req %d, minor %d, res 0x%lx)\n",
-          msg, err->request_code, err->minor_code, err->resourceid);
+  fprintf(stderr, "X Error: %s (req %d, minor %d, res 0x%lx)\n", msg,
+          err->request_code, err->minor_code, err->resourceid);
   void *bt[20];
   int n = backtrace(bt, 20);
   backtrace_symbols_fd(bt, n, STDERR_FILENO);
@@ -35,11 +35,13 @@ static void run_cmd(const char *str) {
 static void *typing_thread(void *arg) {
   (void)arg;
   Display *dpy = XOpenDisplay(DISPLAY_STR);
-  if (!dpy) return NULL;
+  if (!dpy)
+    return NULL;
 
   XSynchronize(dpy, True);
   XkbDescPtr xkb = XkbGetMap(dpy, 0, XkbUseCoreKbd);
-  if (xkb) XkbFreeKeyboard(xkb, 0, True);
+  if (xkb)
+    XkbFreeKeyboard(xkb, 0, True);
 
   Window root = RootWindow(dpy, DefaultScreen(dpy));
 
@@ -52,14 +54,14 @@ static void *typing_thread(void *arg) {
   focusWindow(fWin);
   usleep(500000);
 
-  while (1) {
-    typeString(dpy, "echo ", 0);
-    usleep(1000000);
-    typeString(dpy, "\"hello ", 0);
-    usleep(1000000);
-    typeString(dpy, "riti!\"", 1);
-    usleep(5000000);
-  }
+  // while (1) {
+  //   typeString(dpy, "echo ", 0);
+  //   usleep(1000000);
+  //   typeString(dpy, "\"hello ", 0);
+  //   usleep(1000000);
+  //   typeString(dpy, "riti!\"", 1);
+  //   usleep(5000000);
+  // }
 
   XCloseDisplay(dpy);
   return NULL;
