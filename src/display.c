@@ -1,112 +1,110 @@
 #include "display.h"
 #include <X11/X.h>
 #include <X11/Xlib.h>
+#include <X11/extensions/Xrandr.h>
 #include <X11/extensions/XTest.h>
 #include <X11/keysym.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
-static int xvfbPid = 0;
-static XVFB *active = NULL;
+static Display *active_dpy = NULL;
+static Window active_root = 0;
 
-static void xvfb_stop(void) {
-  if (xvfbPid > 0) {
-    kill(xvfbPid, SIGTERM);
-    waitpid(xvfbPid, NULL, 0);
-    xvfbPid = 0;
-  }
-  system("rm -f /tmp/.X90-lock");
-  usleep(100000);
-}
-
-static void xvfb_start(void) {
-  xvfb_stop();
-
-  xvfbPid = fork();
-  if (xvfbPid == 0) {
-    freopen("/dev/null", "w", stderr);
-    execlp("Xvfb", "Xvfb", DISPLAY_STR, "-screen", "0", "1280x720x24", "-ac",
-           "+extension", "GLX", "+extension", "XFIXES", NULL);
-    _exit(1);
-  }
-
-  Display *dpy = NULL;
-  for (int i = 0; i < 30; i++) {
-    usleep(200000);
-    dpy = XOpenDisplay(DISPLAY_STR);
-    if (dpy) {
-      XCloseDisplay(dpy);
-      printf("Xvfb ready on %s\n", DISPLAY_STR);
-      return;
-    }
-  }
-  fprintf(stderr, "Xvfb failed to start\n");
-  exit(1);
-}
-
-XVFB *xvfb_init(void) {
-  active = calloc(1, sizeof(XVFB));
-  if (!active) return NULL;
-
-  xvfb_start();
-
-  for (int i = 0; i < 10; i++) {
-    active->dpy = XOpenDisplay(DISPLAY_STR);
-    if (active->dpy) break;
-    usleep(200000);
-  }
-  if (!active->dpy) {
-    fprintf(stderr, "Failed to open display\n");
-    free(active);
-    active = NULL;
-    xvfb_stop();
+Display *display_open(void) {
+  active_dpy = XOpenDisplay(NULL);
+  if (!active_dpy) {
+    fprintf(stderr, "Failed to open display (DISPLAY=%s)\n",
+            getenv("DISPLAY") ? getenv("DISPLAY") : "(unset)");
     return NULL;
   }
-
-  active->root = DefaultRootWindow(active->dpy);
-  xvfb_clear_display();
-  usleep(200000);
-
-  return active;
+  active_root = DefaultRootWindow(active_dpy);
+  return active_dpy;
 }
 
-int xvfb_end(void) {
-  if (active && active->dpy) {
-    XCloseDisplay(active->dpy);
-    xvfb_stop();
+void display_close(void) {
+  if (active_dpy) {
+    XCloseDisplay(active_dpy);
+    active_dpy = NULL;
+    active_root = 0;
   }
-  return 0;
 }
 
-int xvfb_clear_display(void) {
-  if (!active || !active->dpy) return 1;
+void display_set_resolution(int width, int height) {
+  if (!active_dpy) return;
 
-  Window queried_root, parent, *children;
-  unsigned int nChildren;
-  Display *dpy = active->dpy;
+  XRRScreenResources *res = XRRGetScreenResources(active_dpy, active_root);
+  if (!res) {
+    fprintf(stderr, "XRandR: failed to get screen resources\n");
+    return;
+  }
 
-  XQueryTree(dpy, active->root, &queried_root, &parent, &children, &nChildren);
-  for (unsigned int i = 0; i < nChildren; i++)
-    XDestroyWindow(dpy, children[i]);
-  if (children) XFree(children);
-  XFlush(dpy);
-  return 0;
+  for (int i = 0; i < res->noutput; i++) {
+    XRROutputInfo *out = XRRGetOutputInfo(active_dpy, res, res->outputs[i]);
+    if (!out) continue;
+
+    if (out->connection != RR_Connected || !out->crtc) {
+      XRRFreeOutputInfo(out);
+      continue;
+    }
+
+    XRRCrtcInfo *crtc = XRRGetCrtcInfo(active_dpy, res, out->crtc);
+    if (!crtc) {
+      XRRFreeOutputInfo(out);
+      continue;
+    }
+
+    // Search mode in the output's own supported mode list, not the global list.
+    // Cross-reference with res->modes to get dimensions.
+    RRMode mode_id = 0;
+    for (int j = 0; j < out->nmode; j++) {
+      for (int m = 0; m < res->nmode; m++) {
+        if (res->modes[m].id == out->modes[j] &&
+            (int)res->modes[m].width == width &&
+            (int)res->modes[m].height == height) {
+          mode_id = res->modes[m].id;
+          break;
+        }
+      }
+      if (mode_id) break;
+    }
+
+    if (mode_id) {
+      // Must use res->configTimestamp, not CurrentTime — XRandR rejects stale
+      // or zero timestamps to guard against concurrent config changes.
+      Status s = XRRSetCrtcConfig(active_dpy, res, out->crtc,
+                                  res->configTimestamp,
+                                  crtc->x, crtc->y, mode_id, crtc->rotation,
+                                  crtc->outputs, crtc->noutput);
+      if (s == RRSetConfigSuccess)
+        printf("Resolution set to %dx%d on output %s\n", width, height,
+               out->name);
+      else
+        fprintf(stderr, "XRandR: failed to set %dx%d on %s\n", width, height,
+                out->name);
+    } else {
+      fprintf(stderr, "XRandR: no mode %dx%d found for %s\n", width, height,
+              out->name);
+    }
+
+    XRRFreeCrtcInfo(crtc);
+    XRRFreeOutputInfo(out);
+    break; // apply to first connected output only
+  }
+
+  XRRFreeScreenResources(res);
+  XFlush(active_dpy);
 }
 
 int screenshot(const char *path) {
-  Display *dpy = active->dpy;
-  Window root = active->root;
-
   XWindowAttributes attrs;
-  XGetWindowAttributes(dpy, root, &attrs);
+  XGetWindowAttributes(active_dpy, active_root, &attrs);
   int w = attrs.width;
   int h = attrs.height;
 
-  XImage *img = XGetImage(dpy, root, 0, 0, w, h, AllPlanes, ZPixmap);
+  XImage *img =
+      XGetImage(active_dpy, active_root, 0, 0, w, h, AllPlanes, ZPixmap);
   if (!img) {
     fprintf(stderr, "XGetImage failed\n");
     return 1;
@@ -123,8 +121,8 @@ int screenshot(const char *path) {
     for (int x = 0; x < w; x++) {
       unsigned long pixel = XGetPixel(img, x, y);
       fputc((pixel >> 16) & 0xFF, f);
-      fputc((pixel >> 8)  & 0xFF, f);
-      fputc((pixel >> 0)  & 0xFF, f);
+      fputc((pixel >> 8) & 0xFF, f);
+      fputc((pixel >> 0) & 0xFF, f);
     }
   }
 
@@ -135,30 +133,30 @@ int screenshot(const char *path) {
 }
 
 void focusWindow(Window w) {
-  XRaiseWindow(active->dpy, w);
-  XSetInputFocus(active->dpy, w, RevertToParent, CurrentTime);
-  XFlush(active->dpy);
+  XRaiseWindow(active_dpy, w);
+  XSetInputFocus(active_dpy, w, RevertToParent, CurrentTime);
+  XFlush(active_dpy);
   usleep(100000);
 }
 
 void printAllWindows(Window root) {
-  Display *dpy = active->dpy;
   Window parent, *children;
   unsigned int nChildren;
 
-  XQueryTree(dpy, root, &root, &parent, &children, &nChildren);
+  XQueryTree(active_dpy, root, &root, &parent, &children, &nChildren);
   for (unsigned int i = 0; i < nChildren; i++) {
     char *name = NULL;
-    XFetchName(dpy, children[i], &name);
+    XFetchName(active_dpy, children[i], &name);
 
     if (!name) {
       Atom actualType;
       int actualFormat;
       unsigned long nItems, bytesAfter;
       unsigned char *prop = NULL;
-      XGetWindowProperty(dpy, children[i], XInternAtom(dpy, "WM_NAME", False),
-                         0, 1024, False, AnyPropertyType, &actualType,
-                         &actualFormat, &nItems, &bytesAfter, &prop);
+      XGetWindowProperty(active_dpy, children[i],
+                         XInternAtom(active_dpy, "WM_NAME", False), 0, 1024,
+                         False, AnyPropertyType, &actualType, &actualFormat,
+                         &nItems, &bytesAfter, &prop);
       if (prop) {
         name = strdup((char *)prop);
         XFree(prop);
@@ -173,15 +171,15 @@ void printAllWindows(Window root) {
 }
 
 void printAllWindowsByClass(Window root) {
-  Display *dpy = active->dpy;
   Window parent, *children;
   unsigned int nChildren;
 
-  XQueryTree(dpy, root, &root, &parent, &children, &nChildren);
+  XQueryTree(active_dpy, root, &root, &parent, &children, &nChildren);
   for (unsigned int i = 0; i < nChildren; i++) {
     XClassHint hint;
-    if (XGetClassHint(dpy, children[i], &hint)) {
-      printf("window: %lu — name: %s  class: %s\n", children[i], hint.res_name, hint.res_class);
+    if (XGetClassHint(active_dpy, children[i], &hint)) {
+      printf("window: %lu — name: %s  class: %s\n", children[i], hint.res_name,
+             hint.res_class);
       XFree(hint.res_name);
       XFree(hint.res_class);
     }
@@ -191,16 +189,15 @@ void printAllWindowsByClass(Window root) {
 }
 
 Window findWindowByName(Window root, const char *name) {
-  Display *dpy = active->dpy;
   Window parent, *children;
   unsigned int nChildren;
 
-  XQueryTree(dpy, root, &root, &parent, &children, &nChildren);
+  XQueryTree(active_dpy, root, &root, &parent, &children, &nChildren);
 
   Window result = 0;
   for (unsigned int i = 0; i < nChildren; i++) {
     char *winName = NULL;
-    XFetchName(dpy, children[i], &winName);
+    XFetchName(active_dpy, children[i], &winName);
     if (winName) {
       if (strstr(winName, name)) {
         result = children[i];
@@ -217,16 +214,15 @@ Window findWindowByName(Window root, const char *name) {
 }
 
 Window findWindowByClass(Window root, const char *className) {
-  Display *dpy = active->dpy;
   Window parent, *children;
   unsigned int nChildren;
 
-  XQueryTree(dpy, root, &root, &parent, &children, &nChildren);
+  XQueryTree(active_dpy, root, &root, &parent, &children, &nChildren);
 
   Window result = 0;
   for (unsigned int i = 0; i < nChildren; i++) {
     XClassHint hint;
-    if (XGetClassHint(dpy, children[i], &hint)) {
+    if (XGetClassHint(active_dpy, children[i], &hint)) {
       int match = strstr(hint.res_class, className) != NULL;
       XFree(hint.res_name);
       XFree(hint.res_class);

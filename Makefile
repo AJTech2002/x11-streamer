@@ -11,6 +11,7 @@ LIBS = \
 	-lXcomposite \
 	-lXdamage \
 	-lXfixes \
+	-lXrandr \
 	-lXtst \
 	-lpthread \
 	-llz4 \

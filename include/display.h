@@ -1,17 +1,10 @@
 #pragma once
-#include "options.h"
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
-typedef struct {
-  int xvfbPid;
-  Display *dpy;
-  Window root;
-} XVFB;
-
-XVFB *xvfb_init(void);
-int xvfb_end(void);
-int xvfb_clear_display(void);
+Display *display_open(void);
+void display_close(void);
+void display_set_resolution(int width, int height);
 int screenshot(const char *path);
 
 void focusWindow(Window w);

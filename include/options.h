@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-
-#define DISPLAY_IDX 90
-#define DISPLAY_STR ":90"
+#define CAPTURE_WIDTH  1280
+#define CAPTURE_HEIGHT 720
 

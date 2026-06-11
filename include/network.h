@@ -13,6 +13,7 @@ typedef struct {
   struct sockaddr_in client;
   bool connected;
   pthread_t recvThread;
+  void *recvArgs;
   callback_fn callback;
 } UdpSession;
 
