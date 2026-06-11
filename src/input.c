@@ -150,6 +150,7 @@ void typeString(Display *dpy, const char *str, int shouldPressEnter) {
 
 void on_command(int command, size_t data_size, char *data) {
   (void)data_size;
+  if (!cmd_dpy) return;
 
   typedef struct {
     float percX;

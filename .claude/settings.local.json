@@ -3,7 +3,10 @@
     "allow": [
       "Bash(make clean *)",
       "Bash(make)",
-      "Bash(xargs ls)"
+      "Bash(xargs ls)",
+      "Bash(sysctl kernel.unprivileged_userns_clone)",
+      "Read(//proc/sys/user/**)",
+      "Read(//proc/sys/kernel/**)"
     ]
   }
 }

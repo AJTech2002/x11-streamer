@@ -1,7 +1,7 @@
 CC = gcc
 
 # -Wall -Wextra 
-CFLAGS = -g -O2 -Iinclude
+CFLAGS = -g -O2 -Iinclude -fsanitize=address
 SRC = $(wildcard src/*.c)
 OUT = app
 

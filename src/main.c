@@ -19,6 +19,12 @@ static int x_error_handler(Display *dpy, XErrorEvent *err) {
   XGetErrorText(dpy, err->error_code, msg, sizeof(msg));
   fprintf(stderr, "X Error: %s (req %d, minor %d, res 0x%lx)\n", msg,
           err->request_code, err->minor_code, err->resourceid);
+  // print request name
+  char req_name[256];
+  XGetErrorDatabaseText(dpy, "XRequest", (char[]){err->request_code + '0', 0},
+                        "unknown", req_name, sizeof(req_name));
+  fprintf(stderr, "Request name: %s\n", req_name);
+  // backtrace
   void *bt[20];
   int n = backtrace(bt, 20);
   backtrace_symbols_fd(bt, n, STDERR_FILENO);
@@ -47,6 +53,7 @@ static void *typing_thread(void *arg) {
 
   run_cmd("openbox");
   run_cmd("xterm -title Terminal -class Terminal");
+  // run_cmd("firefox");
   usleep(1000000);
 
   printAllWindowsByClass(root);
@@ -67,6 +74,11 @@ static void *typing_thread(void *arg) {
   return NULL;
 }
 
+int myIOErrorHandler(Display *dpy) {
+  fprintf(stderr, "XIO fatal error - display connection lost\n");
+  return 0;
+}
+
 int main(int argc, char *argv[]) {
   if (argc < 2) {
     printf("No port number provided!\n");
@@ -80,6 +92,7 @@ int main(int argc, char *argv[]) {
 
   XInitThreads();
   XSetErrorHandler(x_error_handler);
+  XSetIOErrorHandler(myIOErrorHandler);
 
   XVFB *xvfb = xvfb_init();
   if (!xvfb) {
