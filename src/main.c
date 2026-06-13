@@ -4,6 +4,7 @@
 #include "network.h"
 #include "options.h"
 #include "stream.h"
+#include "tile.h"
 #include <X11/XKBlib.h>
 #include <X11/Xlib.h>
 #include <execinfo.h>
@@ -13,6 +14,7 @@
 #include <unistd.h>
 
 static UdpSession session;
+static FragScreen sessionScreen;
 
 static int x_error_handler(Display *dpy, XErrorEvent *err) {
   char msg[256];
@@ -61,15 +63,6 @@ static void *typing_thread(void *arg) {
   focusWindow(fWin);
   usleep(500000);
 
-  // while (1) {
-  //   typeString(dpy, "echo ", 0);
-  //   usleep(1000000);
-  //   typeString(dpy, "\"hello ", 0);
-  //   usleep(1000000);
-  //   typeString(dpy, "riti!\"", 1);
-  //   usleep(5000000);
-  // }
-
   XCloseDisplay(dpy);
   return NULL;
 }
@@ -104,15 +97,18 @@ int main(int argc, char *argv[]) {
   Display *cmd_dpy = XOpenDisplay(DISPLAY_STR);
   input_init(cmd_dpy);
 
+  tiler_init(&sessionScreen, 1280, 720);
+
   Capturer *c = capturer_create(xvfb->dpy, xvfb->root, 1280, 720);
 
   pthread_t thread;
   pthread_create(&thread, NULL, typing_thread, xvfb);
 
-  capturer_run(c, stream_on_frame, &session);
+  capturer_run(c, &sessionScreen, stream_on_frame, &session);
 
   capturer_destroy(c);
   xvfb_end();
+
   XCloseDisplay(cmd_dpy);
   return 0;
 }

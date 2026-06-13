@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include <sys/shm.h>
 
+typedef struct FragScreen FragScreen;
+
 typedef struct {
   Display *dpy;
   Window root;
@@ -17,14 +19,16 @@ typedef struct {
   int height;
 } Capturer;
 
-typedef struct {
+typedef struct DirtyFrame {
   int x, y, w, h;
   uint8_t *pixels;
   int stride;
 } DirtyFrame;
 
-typedef void (*OnFrameCallback)(DirtyFrame *frame, void *userdata);
+typedef void (*OnFrameCallback)(DirtyFrame *frame, FragScreen *screen,
+                                void *userdata);
 
 Capturer *capturer_create(Display *dpy, Window root, int w, int h);
 void capturer_destroy(Capturer *c);
-void capturer_run(Capturer *c, OnFrameCallback onFrame, void *userdata);
+void capturer_run(Capturer *c, FragScreen *screen, OnFrameCallback onFrame,
+                  void *userdata);

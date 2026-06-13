@@ -1,14 +1,18 @@
 #include "stream.h"
 #include "debug.h"
 #include "network.h"
+#include "tile.h"
 #include <lz4.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
-void stream_on_frame(DirtyFrame *frame, void *userdata) {
+void stream_on_frame(DirtyFrame *frame, FragScreen *screen, void *userdata) {
   UdpSession *session = (UdpSession *)userdata;
-  if (!session->connected) return;
+  if (!session->connected)
+    return;
+
+  tiler_encode(screen, frame);
 
   debug_show(frame);
 
@@ -24,13 +28,13 @@ void stream_on_frame(DirtyFrame *frame, void *userdata) {
   }
 
   for (int r = 0; r < frame->h; r++) {
-    memcpy(pixels + r * frame->w * 4,
-           frame->pixels + r * frame->stride,
+    memcpy(pixels + r * frame->w * 4, frame->pixels + r * frame->stride,
            frame->w * 4);
   }
 
-  int compSize = LZ4_compress_fast((char *)pixels, (char *)(data + headerSize),
-                                   pixelBytes, LZ4_COMPRESSBOUND(pixelBytes), 1);
+  int compSize =
+      LZ4_compress_fast((char *)pixels, (char *)(data + headerSize), pixelBytes,
+                        LZ4_COMPRESSBOUND(pixelBytes), 1);
   free(pixels);
   if (compSize <= 0) {
     free(data);
